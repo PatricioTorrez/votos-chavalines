@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#06000D">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Los Chavalines 🏆</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Orbitron:wght@400;700;900&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="bg-noise"></div>
+<div class="bg-gradients">
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    <div class="blob blob-3"></div>
+</div>
+<div class="bg-horizon"></div>
+<div class="scanlines"></div>
+<canvas id="confetti-canvas"></canvas>
+
+<audio id="drum-sound" src="tambores.mp3" preload="auto"></audio>
+<audio id="win-sound" preload="auto"></audio>
+
+<!-- TOAST CONTAINER -->
+<div id="toast-container"></div>
+
+<!-- CONNECTION INDICATOR -->
+<div id="connection-indicator" class="connection-indicator disconnected">
+    <span class="conn-dot"></span>
+    <span class="conn-label">CONECTANDO</span>
+</div>
+
+<!-- MAIN APP -->
+<div class="app-shell">
+    <div class="shell-corner shell-corner-tl"></div>
+    <div class="shell-corner shell-corner-tr"></div>
+    <div class="shell-corner shell-corner-bl"></div>
+    <div class="shell-corner shell-corner-br"></div>
+
+    <!-- ===== LOGIN ===== -->
+    <div id="screen-login" class="screen active">
+        <div class="login-header">
+            <div class="logo-badge">🏆</div>
+            <p class="jp-label">ロス・チャバリネス</p>
+            <h1 class="main-title">LOS<br>CHAVALINES</h1>
+            <p class="subtitle">▶ SALA DE TORNEO ◀</p>
+            <div class="press-start-blink">PRESS START</div>
+        </div>
+
+        <div class="login-body">
+            <p class="field-label">▸ ELIGE TU PERSONAJE</p>
+            <div class="character-grid" id="character-grid">
+                <button type="button" class="char-btn" data-name="Claudio 🍑🃏" onclick="selectChar(this)">
+                    <span class="char-emoji">🍑</span>
+                    <span class="char-name">Claudio</span>
+                </button>
+                <button type="button" class="char-btn" data-name="Ferchos 🙈🐵 " onclick="selectChar(this)">
+                    <span class="char-emoji">🙈</span>
+                    <span class="char-name">Ferchos</span>
+                </button>
+                <button type="button" class="char-btn" data-name="Bombo 🐷🐷" onclick="selectChar(this)">
+                    <span class="char-emoji">🐷</span>
+                    <span class="char-name">Bombo</span>
+                </button>
+                <button type="button" class="char-btn" data-name="Pitrisio 😭😭" onclick="selectChar(this)">
+                    <span class="char-emoji">😭</span>
+                    <span class="char-name">Pitrisio</span>
+                </button>
+            </div>
+
+            <button type="button" id="btn-login-user" class="btn-primary" onclick="loginUser()" disabled>
+                ▶ ENTRAR AL TORNEO
+            </button>
+
+            <button type="button" class="btn-link" onclick="toggleAdmin()">ACCESO ADMIN</button>
+
+            <div id="admin-login-area" class="admin-login-area hidden">
+                <label for="adminPass" class="sr-only">Contraseña maestra</label>
+                <input type="password" id="adminPass" placeholder="Contraseña maestra" autocomplete="current-password">
+                <button type="button" class="btn-ghost-red" onclick="loginAdmin()">▶ CONFIRMAR ACCESO</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== LOBBY ===== -->
+    <div id="screen-lobby" class="screen">
+        <button type="button" onclick="logout()" class="btn-close" title="Salir">✕</button>
+
+        <div class="lobby-header">
+            <div class="player-avatar" id="lobby-avatar">🎮</div>
+            <p class="field-label">▸ JUGADOR</p>
+            <h2 id="my-name-display" class="player-name-display"></h2>
+        </div>
+
+        <div id="waiting-badge" class="waiting-badge">
+            <div class="loader-ring"></div>
+            <span>ESPERANDO AL ADMIN...</span>
+        </div>
+
+        <!-- ADMIN PANEL -->
+        <div id="admin-panel" class="admin-panel hidden">
+            <div class="admin-panel-header">
+                <span class="material-icons-round">admin_panel_settings</span>
+                PANEL DE CONTROL
+            </div>
+
+            <div class="admin-players-grid" id="lobby-list">
+                <p class="muted-text">Esperando jugadores...</p>
+            </div>
+
+            <div class="admin-actions-grid">
+                <button type="button" onclick="startRound('normal')" class="btn-primary">
+                    <span class="material-icons-round">how_to_vote</span>
+                    MODO NORMAL
+                    <small>1 voto por persona</small>
+                </button>
+                <button type="button" onclick="startRound('estrellas')" class="btn-stars">
+                    <span class="material-icons-round">star</span>
+                    MODO ESTRELLAS
+                    <small>Califica del 1 al 5</small>
+                </button>
+            </div>
+
+            <button type="button" onclick="resetScores()" class="btn-danger-ghost">
+                <span class="material-icons-round">restart_alt</span>
+                REINICIAR PUNTUACIONES
+            </button>
+        </div>
+    </div>
+
+    <!-- ===== VOTACIÓN ===== -->
+    <div id="screen-voting" class="screen">
+        <div class="voting-header">
+            <div class="mode-badge" id="mode-badge">Votación</div>
+            <h2 class="voting-title" id="voting-instruction">ELIGE SABIAMENTE</h2>
+        </div>
+
+        <!-- Modo normal -->
+        <div id="ui-normal" class="voting-ui hidden">
+            <div id="cards-container" class="vote-cards-grid"></div>
+        </div>
+
+        <!-- Modo estrellas -->
+        <div id="ui-stars" class="voting-ui hidden">
+            <div id="stars-container" class="stars-grid"></div>
+            <button type="button" onclick="submitStarVotes()" class="btn-primary btn-submit-stars">
+                <span class="material-icons-round">send</span>
+                ENVIAR CALIFICACIONES
+            </button>
+        </div>
+
+        <!-- Estados de espera -->
+        <div class="waiting-status hidden" id="waiting-msg">
+            <div class="vote-confirmed-badge">
+                <span class="material-icons-round">check_circle</span>
+                VOTO REGISTRADO
+            </div>
+            <p class="pulse-text">ESPERANDO A LOS DEMÁS...</p>
+        </div>
+
+        <div class="waiting-status hidden" id="round-wait-msg">
+            <div class="vote-confirmed-badge vote-confirmed-badge--neutral">
+                <span class="material-icons-round">hourglass_top</span>
+                RONDA TERMINADA
+            </div>
+            <p class="pulse-text pulse-text--muted">ESPERANDO AL ADMIN...</p>
+        </div>
+
+        <!-- Vista de admin en votación -->
+        <div id="admin-voting-view" class="admin-voting-panel hidden">
+            <div class="admin-panel-header">
+                <span class="material-icons-round">bar_chart</span>
+                ESTADO EN VIVO
+            </div>
+
+            <div id="live-voting-list" class="live-list"></div>
+
+            <div id="admin-controls-normal" class="admin-controls-normal hidden">
+                <button type="button" onclick="forceFinish()" class="btn-ghost-red">
+                    <span class="material-icons-round">flash_on</span>
+                    FORZAR FINALIZAR
+                </button>
+            </div>
+
+            <div id="admin-controls-stars" class="stars-admin-controls hidden">
+                <div id="accumulated-scores" class="scores-preview"></div>
+                <div class="stars-btn-grid">
+                    <button type="button" id="btn-next-round" onclick="accumulateRound()" class="btn-ghost" disabled>
+                        <span class="material-icons-round">add_circle</span>
+                        <span>ACUMULAR Y SEGUIR</span>
+                    </button>
+                    <button type="button" id="btn-finish-tour" onclick="finishTournament()" class="btn-primary" disabled>
+                        <span class="material-icons-round">emoji_events</span>
+                        <span>TERMINAR TORNEO</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== SUSPENSO ===== -->
+    <div id="screen-suspense" class="screen">
+        <div class="suspense-content">
+            <p class="suspense-label">▸ LOS RESULTADOS SON... ◂</p>
+            <div id="countdown-display" class="countdown-num">3</div>
+            <div class="suspense-bars">
+                <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+                <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== RESULTADOS ===== -->
+    <div id="screen-results" class="screen">
+        <button type="button" onclick="logout()" class="btn-close" title="Salir">✕</button>
+
+        <div id="winner-section" class="winner-section"></div>
+
+        <div class="results-table">
+            <p class="field-label results-label">▸ CLASIFICACIÓN FINAL</p>
+            <div id="podium" class="podium-list"></div>
+        </div>
+
+        <div id="admin-reset" class="admin-reset-bar hidden">
+            <button type="button" onclick="resetLobby()" class="btn-primary">
+                <span class="material-icons-round">replay</span>
+                ▶ VOLVER AL LOBBY
+            </button>
+        </div>
+    </div>
+
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"
+        integrity="sha512-gMQkpSiWAIrGNGNIXKmHOdSEd8/PRyy1rPJJC3fHLB7jmhFhGF0D3vMuLl4LXCsSmFKirC/4LD3GlH+2HtEg=="
+        crossorigin="anonymous"></script>
+<script src="script.js"></script>
+</body>
+</html>
