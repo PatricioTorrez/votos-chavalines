@@ -1,16 +1,25 @@
 {
   "name": "votos-chavalines",
   "version": "1.0.0",
-  "main": "index.js",
+  "description": "Juego de votacion en tiempo real para torneos entre amigos, pensado para jugarse desde el celular.",
+  "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js",
+    "test": "node --test"
   },
-  "keywords": [],
+  "keywords": [
+    "socket.io",
+    "votacion",
+    "juego"
+  ],
   "author": "",
   "license": "ISC",
-  "description": "",
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "express": "^5.2.1",
+    "firebase-admin": "^14.3.0",
     "socket.io": "^4.8.3"
   }
 }

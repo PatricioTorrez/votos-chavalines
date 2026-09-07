@@ -49,9 +49,16 @@
     --radius-xs:  2px;
 
     /* Easings */
-    --ease-out:    cubic-bezier(0.25, 0.46, 0.45, 0.94);
-    --ease-bounce: cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    --ease-snap:   cubic-bezier(0.68, -0.55, 0.27, 1.55);
+    --ease-out:    cubic-bezier(0.23, 1, 0.32, 1);          /* entradas y salidas */
+    --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);         /* movimiento en pantalla */
+    --ease-bounce: cubic-bezier(0.175, 0.885, 0.32, 1.275); /* overshoot suave */
+    --ease-snap:   cubic-bezier(0.34, 1.56, 0.64, 1);       /* overshoot marcado (solo al final) */
+
+    /* Duraciones */
+    --dur-press: 140ms;   /* feedback de pulsacion */
+    --dur-fast:  180ms;   /* micro-estados */
+    --dur-ui:    240ms;   /* tarjetas, toasts */
+    --dur-panel: 320ms;   /* cambio de pantalla */
 
     /* Fuentes */
     --font-arcade: 'Press Start 2P', monospace;
@@ -101,11 +108,17 @@ body {
 .blob {
     position: absolute;
     border-radius: 50%;
-    filter: blur(90px);
+    filter: blur(60px);
     opacity: 0.1;
     transform: translateZ(0);
     will-change: transform;
     animation: blobFloat 16s ease-in-out infinite;
+}
+/* El tercer blob solo aparece cuando hay pantalla (y GPU) de sobra */
+.blob-3 { display: none; }
+@media (min-width: 600px) {
+    .blob { filter: blur(90px); }
+    .blob-3 { display: block; }
 }
 .blob-1 { width: 500px; height: 500px; background: var(--neon-pink);   top: -15%; left: -20%; animation-delay: 0s; }
 .blob-2 { width: 420px; height: 420px; background: var(--neon-purple); bottom: -15%; right: -15%; animation-delay: -6s; }
@@ -181,7 +194,7 @@ body {
     width: 100%;
     opacity: 0;
     transform: translateY(10px);
-    transition: opacity 0.35s var(--ease-out), transform 0.35s var(--ease-out);
+    transition: opacity var(--dur-panel) var(--ease-out), transform var(--dur-panel) var(--ease-out);
 }
 .screen.active {
     display: flex;
@@ -321,7 +334,7 @@ body {
     text-align: center;
     transform: translateY(20px);
     opacity: 0;
-    transition: all 0.3s var(--ease-bounce);
+    transition: transform var(--dur-ui) var(--ease-bounce), opacity var(--dur-fast) var(--ease-out);
     width: 100%;
     letter-spacing: 0.3px;
 }
@@ -367,7 +380,10 @@ body {
     border: 1px solid rgba(0, 255, 255, 0.18);
     border-radius: var(--radius-md);
     cursor: pointer;
-    transition: all 0.18s var(--ease-out);
+    transition: transform var(--dur-fast) var(--ease-out),
+                border-color var(--dur-fast) var(--ease-out),
+                background-color var(--dur-fast) var(--ease-out),
+                box-shadow var(--dur-fast) var(--ease-out);
     color: var(--text);
     font-family: var(--font-body);
     position: relative;
@@ -380,22 +396,33 @@ body {
     opacity: 0;
     transition: opacity 0.2s;
 }
-.char-btn:hover::before { opacity: 1; }
-.char-btn:hover {
-    border-color: rgba(0,255,255,0.5);
-    box-shadow: 0 0 18px rgba(0,255,255,0.15), inset 0 0 12px rgba(0,255,255,0.04);
-    transform: translateY(-2px);
+@media (hover: hover) and (pointer: fine) {
+    .char-btn:hover::before { opacity: 1; }
+    .char-btn:hover {
+        border-color: rgba(0,255,255,0.5);
+        box-shadow: 0 0 18px rgba(0,255,255,0.15), inset 0 0 12px rgba(0,255,255,0.04);
+        transform: translateY(-2px);
+    }
 }
+/* En tactil no hay hover: el :active es lo unico que confirma el tap */
+.char-btn:active { transform: scale(0.97); }
+
 .char-btn.selected {
     border-color: var(--neon-pink);
     background: rgba(255,0,128,0.1);
-    box-shadow: 0 0 20px var(--glow-pink), 0 0 40px rgba(255,0,128,0.08), inset 0 0 15px rgba(255,0,128,0.05);
+    box-shadow: 0 0 22px var(--glow-pink), 0 0 44px rgba(255,0,128,0.10), inset 0 0 15px rgba(255,0,128,0.05);
     transform: translateY(-2px);
-    animation: char-pulse 1s ease-in-out infinite alternate;
 }
-@keyframes char-pulse {
-    from { box-shadow: 0 0 15px var(--glow-pink), inset 0 0 8px rgba(255,0,128,0.03); }
-    to   { box-shadow: 0 0 28px var(--glow-pink), 0 0 50px rgba(255,0,128,0.12), inset 0 0 18px rgba(255,0,128,0.06); }
+.char-btn.selected:active { transform: translateY(-2px) scale(0.97); }
+/* El pulso va por opacidad de una capa ya compuesta, no repintando box-shadow 60 veces/s */
+.char-btn.selected::before {
+    background: radial-gradient(circle at 50% 45%, rgba(255,0,128,0.30) 0%, transparent 70%);
+    opacity: 1;
+    animation: glow-pulse 1.4s var(--ease-in-out) infinite alternate;
+}
+@keyframes glow-pulse {
+    from { opacity: 0.35; }
+    to   { opacity: 1; }
 }
 .char-btn.saved::after {
     content: '↩';
@@ -419,7 +446,9 @@ body {
     align-self: center;
     transition: color 0.2s, text-shadow 0.2s;
 }
-.btn-link:hover { color: var(--neon-cyan); text-shadow: 0 0 8px rgba(0,255,255,0.4); }
+@media (hover: hover) and (pointer: fine) {
+    .btn-link:hover { color: var(--neon-cyan); text-shadow: 0 0 8px rgba(0,255,255,0.4); }
+}
 
 .admin-login-area {
     display: flex; flex-direction: column; gap: 10px;
@@ -443,7 +472,7 @@ input[type="password"], input[type="text"] {
     font-weight: 700;
     letter-spacing: 2px;
     outline: none;
-    transition: all 0.2s var(--ease-out);
+    transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
 input:focus {
     border-color: var(--neon-cyan);
@@ -462,7 +491,11 @@ button {
     font-family: var(--font-body);
     cursor: pointer;
     border: none;
-    transition: all 0.1s var(--ease-out);
+    transition: transform var(--dur-press) var(--ease-out),
+                box-shadow var(--dur-press) var(--ease-out),
+                background-color var(--dur-press) var(--ease-out),
+                color var(--dur-press) var(--ease-out),
+                border-color var(--dur-press) var(--ease-out);
     display: flex; align-items: center; justify-content: center;
     gap: 8px;
     border-radius: var(--radius-sm);
@@ -487,7 +520,7 @@ button {
         0 0 40px rgba(255,0,128,0.15);
     flex-direction: column;
     gap: 2px;
-    transition: all 0.08s;
+    transition: transform var(--dur-press) var(--ease-out), box-shadow var(--dur-press) var(--ease-out), background-color var(--dur-press) var(--ease-out);
 }
 .btn-primary small {
     font-family: var(--font-body);
@@ -497,10 +530,12 @@ button {
     letter-spacing: 0;
     text-transform: none;
 }
-.btn-primary:hover {
-    background: #FF1A90;
-    box-shadow: 0 5px 0 #8A0044, 0 0 30px var(--glow-pink), 0 0 60px rgba(255,0,128,0.25);
-    transform: translateY(-1px);
+@media (hover: hover) and (pointer: fine) {
+    .btn-primary:hover {
+        background: #FF1A90;
+        box-shadow: 0 5px 0 #8A0044, 0 0 30px var(--glow-pink), 0 0 60px rgba(255,0,128,0.25);
+        transform: translateY(-1px);
+    }
 }
 .btn-primary:active {
     transform: translateY(4px);
@@ -528,16 +563,18 @@ button {
         0 0 20px var(--glow-yellow),
         0 0 40px rgba(255,230,0,0.15);
     flex-direction: column; gap: 2px;
-    transition: all 0.08s;
+    transition: transform var(--dur-press) var(--ease-out), box-shadow var(--dur-press) var(--ease-out), background-color var(--dur-press) var(--ease-out);
 }
 .btn-stars small {
     font-family: var(--font-body);
     font-size: 0.65rem; font-weight: 500;
     opacity: 0.7; letter-spacing: 0; text-transform: none;
 }
-.btn-stars:hover {
-    box-shadow: 0 5px 0 #887000, 0 0 30px var(--glow-yellow), 0 0 60px rgba(255,230,0,0.25);
-    transform: translateY(-1px);
+@media (hover: hover) and (pointer: fine) {
+    .btn-stars:hover {
+        box-shadow: 0 5px 0 #887000, 0 0 30px var(--glow-yellow), 0 0 60px rgba(255,230,0,0.25);
+        transform: translateY(-1px);
+    }
 }
 .btn-stars:active {
     transform: translateY(4px);
@@ -553,12 +590,15 @@ button {
     font-size: 0.65rem;
     letter-spacing: 1px;
     flex: 1;
-    transition: all 0.15s;
+    transition: transform var(--dur-press) var(--ease-out), background-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
-.btn-ghost:hover {
-    background: rgba(0,255,255,0.1);
-    box-shadow: 0 0 15px rgba(0,255,255,0.15);
+@media (hover: hover) and (pointer: fine) {
+    .btn-ghost:hover {
+        background: rgba(0,255,255,0.1);
+        box-shadow: 0 0 15px rgba(0,255,255,0.15);
+    }
 }
+.btn-ghost:active:not(:disabled) { transform: scale(0.97); }
 .btn-ghost:disabled { opacity: 0.35; cursor: not-allowed; transform: none !important; }
 
 .btn-ghost-red {
@@ -569,12 +609,15 @@ button {
     font-family: var(--font-tech);
     font-size: 0.65rem;
     letter-spacing: 1px;
-    transition: all 0.15s;
+    transition: transform var(--dur-press) var(--ease-out), background-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
-.btn-ghost-red:hover {
-    background: rgba(255,0,128,0.12);
-    box-shadow: 0 0 15px rgba(255,0,128,0.15);
+@media (hover: hover) and (pointer: fine) {
+    .btn-ghost-red:hover {
+        background: rgba(255,0,128,0.12);
+        box-shadow: 0 0 15px rgba(255,0,128,0.15);
+    }
 }
+.btn-ghost-red:active { transform: scale(0.97); }
 
 .btn-danger-ghost {
     width: 100%; height: 40px;
@@ -585,13 +628,16 @@ button {
     font-size: 0.6rem;
     letter-spacing: 1px;
     margin-top: 0.5rem;
-    transition: all 0.15s;
+    transition: transform var(--dur-press) var(--ease-out), color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
-.btn-danger-ghost:hover {
-    color: var(--neon-pink);
-    border-color: var(--neon-pink);
-    box-shadow: 0 0 10px rgba(255,0,128,0.1);
+@media (hover: hover) and (pointer: fine) {
+    .btn-danger-ghost:hover {
+        color: var(--neon-pink);
+        border-color: var(--neon-pink);
+        box-shadow: 0 0 10px rgba(255,0,128,0.1);
+    }
 }
+.btn-danger-ghost:active { transform: scale(0.97); }
 
 .btn-close {
     position: absolute; top: 16px; right: 16px;
@@ -603,14 +649,17 @@ button {
     font-size: 0.9rem;
     z-index: 20;
     display: flex; align-items: center; justify-content: center;
-    transition: all 0.15s;
+    transition: transform var(--dur-press) var(--ease-out), background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
-.btn-close:hover {
-    background: var(--neon-pink);
-    color: #000;
-    box-shadow: 0 0 15px var(--glow-pink);
-    transform: rotate(90deg);
+@media (hover: hover) and (pointer: fine) {
+    .btn-close:hover {
+        background: var(--neon-pink);
+        color: #000;
+        box-shadow: 0 0 15px var(--glow-pink);
+        transform: rotate(90deg);
+    }
 }
+.btn-close:active { transform: scale(0.94); }
 
 /* --- LOBBY --- */
 .lobby-header {
@@ -711,12 +760,22 @@ button {
     background: rgba(255,255,255,0.04);
     color: var(--text-muted);
     border: 1px solid rgba(0,255,255,0.1);
+    transition: background-color var(--dur-ui) var(--ease-out),
+                color var(--dur-ui) var(--ease-out),
+                border-color var(--dur-ui) var(--ease-out),
+                box-shadow var(--dur-ui) var(--ease-out);
 }
 .player-status.voted {
     background: rgba(0,255,255,0.1);
     color: var(--neon-cyan);
     border-color: rgba(0,255,255,0.3);
     box-shadow: 0 0 8px rgba(0,255,255,0.15);
+    /* Se dispara una sola vez, cuando la fila pasa a votada */
+    animation: voted-pop 260ms var(--ease-snap);
+}
+@keyframes voted-pop {
+    from { transform: scale(0.86); }
+    to   { transform: scale(1); }
 }
 
 .admin-actions-grid {
@@ -785,7 +844,10 @@ button {
     border: 1px solid rgba(0,255,255,0.15);
     border-radius: var(--radius-md);
     cursor: pointer;
-    transition: all 0.18s var(--ease-out);
+    transition: transform var(--dur-fast) var(--ease-out),
+                border-color var(--dur-fast) var(--ease-out),
+                background-color var(--dur-fast) var(--ease-out),
+                box-shadow var(--dur-fast) var(--ease-out);
     position: relative; overflow: hidden;
 }
 .vote-card::before {
@@ -799,7 +861,7 @@ button {
     box-shadow: 0 0 8px var(--glow-pink);
 }
 
-@media (hover: hover) {
+@media (hover: hover) and (pointer: fine) {
     .vote-card:hover {
         border-color: rgba(0,255,255,0.4);
         background: rgba(0,255,255,0.04);
@@ -824,10 +886,14 @@ button {
     color: var(--neon-pink);
     text-shadow: 0 0 8px var(--glow-pink);
     opacity: 0;
-    transform: scale(0.4);
-    transition: all 0.22s var(--ease-snap);
+    transform: scale(0.8);
+    transition: opacity var(--dur-fast) var(--ease-out), transform 220ms var(--ease-snap);
 }
 .vote-card.selected .vote-card-check { opacity: 1; transform: scale(1); }
+
+/* Feedback de tap en la tarjeta (en tactil no hay hover) */
+.vote-card:active { transform: scale(0.985); }
+.vote-card.selected:active { transform: translateX(5px) scale(0.985); }
 
 /* Estados de espera */
 .waiting-status {
@@ -884,13 +950,19 @@ button {
     border-left: 2px solid transparent;
     font-family: var(--font-body);
     font-size: 0.88rem; font-weight: 600;
+    transition: border-left-color var(--dur-ui) var(--ease-out),
+                background-color var(--dur-ui) var(--ease-out);
 }
-.live-row.voted { border-left-color: var(--neon-cyan); }
+.live-row.voted {
+    border-left-color: var(--neon-cyan);
+    background: rgba(0,255,255,0.04);
+}
 
 .live-status {
     font-family: var(--font-tech);
     font-size: 0.55rem; font-weight: 700; letter-spacing: 1px;
     color: var(--text-muted);
+    transition: color var(--dur-ui) var(--ease-out), text-shadow var(--dur-ui) var(--ease-out);
 }
 .live-row.voted .live-status {
     color: var(--neon-cyan);
@@ -905,6 +977,84 @@ button {
     border: 1px solid rgba(0,255,255,0.1);
     border-radius: var(--radius-sm);
     margin-bottom: 10px;
+}
+
+/* --- HISTORIAL (admin) --- */
+.historial-toggle { width: 100%; margin-bottom: 10px; }
+
+.historial-panel {
+    padding: 12px;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(0,255,255,0.1);
+    border-radius: var(--radius-sm);
+    margin-bottom: 10px;
+}
+.historial-panel.hidden { display: none; }
+
+.historial-sub { margin-top: 14px; }
+
+/* El nombre trae emojis y el puntaje ("2 🏆 · 0 🎵") es mas ancho que el del
+   podio normal. Sin esto, en 360px la fila se rompe en dos lineas y el nombre
+   se pisa con el puntaje. min-width:0 deja que el nombre se recorte. */
+/* En 360px la fila tiene ~181px utiles y el nombre se quedaba con 46 de los 54
+   que necesita "Ferchos". Se recortan gap, rank y puntaje para devolverle ~20px. */
+#historial-ranking .podium-left { min-width: 0; flex: 1; gap: 6px; }
+#historial-ranking .podium-rank { min-width: 18px; }
+#historial-ranking .podium-emoji { font-size: 1.05rem; }
+#historial-ranking .podium-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+#historial-ranking .podium-score {
+    white-space: nowrap;
+    flex-shrink: 0;
+    padding-left: 6px;
+    font-size: 0.7rem;
+}
+
+.historial-lista {
+    display: flex; flex-direction: column; gap: 4px;
+    max-height: 240px; overflow-y: auto;
+    scrollbar-width: none;
+}
+.historial-lista::-webkit-scrollbar { display: none; }
+
+.historial-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 9px;
+    background: rgba(0,0,0,0.3);
+    border-radius: var(--radius-xs);
+    font-size: 0.78rem;
+    /* La fila puede desbordar en pantallas angostas: scrollea ella, no la pagina */
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+.historial-row::-webkit-scrollbar { display: none; }
+
+.historial-fecha {
+    font-family: var(--font-tech);
+    font-size: 0.62rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.historial-row .mode-badge {
+    margin-bottom: 0;
+    font-size: 0.45rem;
+    padding: 2px 7px;
+    flex-shrink: 0;
+}
+.historial-ganador {
+    flex: 1; font-weight: 700; white-space: nowrap;
+}
+.historial-puntos {
+    font-family: var(--font-tech);
+    font-size: 0.68rem; font-weight: 700;
+    color: var(--neon-yellow);
+    text-shadow: 0 0 8px var(--glow-yellow);
+    white-space: nowrap; flex-shrink: 0;
 }
 .scores-label {
     font-family: var(--font-tech);
@@ -962,12 +1112,14 @@ button {
 .star-rating { display: flex; gap: 2px; }
 
 .star-btn {
-    width: 36px; height: 36px; padding: 0;
+    /* 44px = objetivo tactil minimo; el icono sigue midiendo 1.8rem */
+    width: 44px; height: 44px; padding: 0;
     background: none; border: none;
     display: flex; align-items: center; justify-content: center;
-    transition: transform 0.15s var(--ease-bounce);
+    touch-action: manipulation;
+    transition: transform var(--dur-press) var(--ease-out);
 }
-.star-btn:active { transform: scale(1.35); }
+.star-btn:active { transform: scale(0.95); }
 
 .star-icon {
     font-size: 1.8rem !important;
@@ -1030,7 +1182,7 @@ button {
     animation: countPop 0.4s var(--ease-snap) forwards, countdown-rgb 0.5s linear infinite;
 }
 @keyframes countPop {
-    0%   { transform: translateZ(0) scale(1.5); }
+    0%   { transform: translateZ(0) scale(1.4); }
     100% { transform: translateZ(0) scale(1); }
 }
 
@@ -1082,11 +1234,18 @@ button {
     position: relative;
     width: 150px; height: 150px;
     margin: 0 auto 1rem;
-    animation: ring-pulse 1.8s ease-in-out infinite;
+}
+.winner-avatar-ring::after {
+    content: '';
+    position: absolute; inset: 0;
+    border-radius: 50%;
+    pointer-events: none;
+    box-shadow: 0 0 25px var(--glow-pink), 0 0 40px rgba(255,0,128,0.2);
+    animation: ring-pulse 1.8s var(--ease-in-out) infinite alternate;
 }
 @keyframes ring-pulse {
-    0%,100% { filter: drop-shadow(0 0 10px var(--glow-pink)); }
-    50%     { filter: drop-shadow(0 0 25px var(--glow-pink)) drop-shadow(0 0 40px rgba(255,0,128,0.2)); }
+    from { opacity: 0.35; }
+    to   { opacity: 1; }
 }
 
 .winner-img {
@@ -1243,9 +1402,51 @@ button {
    ACCESIBILIDAD — Sin movimiento
    ============================================================ */
 @media (prefers-reduced-motion: reduce) {
+    /* Menos movimiento, no cero: se conserva el feedback de opacidad y color,
+       se elimina el desplazamiento, el parpadeo y el movimiento decorativo. */
+    html { scroll-behavior: auto; }
+
+    /* Movimiento decorativo continuo: fuera */
+    .blob,
+    .logo-badge,
+    .player-avatar,
+    .winner-crown,
+    .winner-avatar-ring::after,
+    .suspense-bars .bar,
+    .main-title,
+    .countdown-num,
+    .char-btn.selected::before,
+    .tie-header {
+        animation: none !important;
+    }
+    /* El parpadeo rapido es ademas un riesgo para fotosensibilidad */
+    .press-start-blink,
+    .suspense-label,
+    .conn-dot,
+    .pulse-text {
+        animation: none !important;
+        opacity: 1 !important;
+    }
+    /* Las barras de suspenso quedan estaticas pero visibles */
+    .suspense-bars .bar { background: var(--neon-cyan); box-shadow: 0 0 8px var(--glow-cyan); }
+
+    /* Sin desplazamiento: los estados siguen distinguiendose por color y borde */
+    .screen,
+    .char-btn:hover, .char-btn:active, .char-btn.selected, .char-btn.selected:active,
+    .vote-card:hover, .vote-card:active, .vote-card.selected, .vote-card.selected:active,
+    .btn-primary:hover, .btn-primary:active,
+    .btn-stars:hover, .btn-stars:active,
+    .btn-ghost:active, .btn-ghost-red:active, .btn-danger-ghost:active,
+    .btn-close:hover, .btn-close:active,
+    .star-btn:active {
+        transform: none !important;
+    }
+    .star-card.card-error { animation: none !important; }
+    .player-status.voted { animation: none !important; }
+
+    /* Transiciones mas cortas, pero presentes: siguen explicando el cambio de estado */
     *, *::before, *::after {
-        animation-duration: 0.01ms !important;
-        transition-duration: 0.01ms !important;
+        transition-duration: 120ms !important;
     }
 }
 

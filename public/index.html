@@ -58,24 +58,9 @@
 
         <div class="login-body">
             <p class="field-label">▸ ELIGE TU PERSONAJE</p>
-            <div class="character-grid" id="character-grid">
-                <button type="button" class="char-btn" data-name="Claudio 🍑🃏" onclick="selectChar(this)">
-                    <span class="char-emoji">🍑</span>
-                    <span class="char-name">Claudio</span>
-                </button>
-                <button type="button" class="char-btn" data-name="Ferchos 🙈🐵 " onclick="selectChar(this)">
-                    <span class="char-emoji">🙈</span>
-                    <span class="char-name">Ferchos</span>
-                </button>
-                <button type="button" class="char-btn" data-name="Bombo 🐷🐷" onclick="selectChar(this)">
-                    <span class="char-emoji">🐷</span>
-                    <span class="char-name">Bombo</span>
-                </button>
-                <button type="button" class="char-btn" data-name="Pitrisio 😭😭" onclick="selectChar(this)">
-                    <span class="char-emoji">😭</span>
-                    <span class="char-name">Pitrisio</span>
-                </button>
-            </div>
+            <!-- La arma renderCharacterGrid() con lo que manda el servidor
+                 (data/concursantes.json). No hay nombres escritos a mano aca. -->
+            <div class="character-grid" id="character-grid"></div>
 
             <button type="button" id="btn-login-user" class="btn-primary" onclick="loginUser()" disabled>
                 ▶ ENTRAR AL TORNEO
@@ -128,6 +113,19 @@
                     MODO ESTRELLAS
                     <small>Califica del 1 al 5</small>
                 </button>
+            </div>
+
+            <button type="button" id="btn-historial" onclick="toggleHistorial()" class="btn-ghost historial-toggle">
+                <span class="material-icons-round">history</span>
+                HISTORIAL
+            </button>
+
+            <div id="historial-panel" class="historial-panel hidden">
+                <p class="scores-label">RANKING HISTÓRICO</p>
+                <div id="historial-ranking" class="podium-list"></div>
+
+                <p class="scores-label historial-sub">ÚLTIMOS TORNEOS</p>
+                <div id="historial-lista" class="historial-lista"></div>
             </div>
 
             <button type="button" onclick="resetScores()" class="btn-danger-ghost">

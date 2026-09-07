@@ -13,7 +13,7 @@ npm install
 
 ### 2. Iniciar el servidor
 ```bash
-node server.js
+npm start
 ```
 El servidor queda corriendo en `http://localhost:3000`
 
@@ -25,15 +25,83 @@ ngrok genera una URL pública como `https://abc123.ngrok.io`. Esa URL es la que 
 
 > **Flujo completo en dos terminales:**
 > ```
-> Terminal 1 → node server.js
+> Terminal 1 → npm start
 > Terminal 2 → ngrok http 3000
 > ```
 
 ### Contraseña de admin
-Por defecto es `admin`. Se puede cambiar con una variable de entorno:
-```bash
-ADMIN_PASSWORD=miClave node server.js
+Si no se define nada, el servidor **genera una clave al azar y la imprime al arrancar**:
 ```
+🔑 Clave de admin (generada para esta sesión): 7F3A2B
+```
+Para fijar una propia:
+```bash
+ADMIN_PASSWORD=miClave npm start
+```
+
+### Tests
+```bash
+npm test
+```
+Verifica que `data/concursantes.json` sea coherente, que todas las fotos y audios
+que referencia existan de verdad en `public/`, y que la lógica del historial
+cuente bien las victorias. Corre **offline y sin credenciales de Firebase**.
+
+### Historial de torneos (Firebase)
+
+El historial de quién ganó y cuándo se guarda en Cloud Firestore. Es opcional:
+**sin configurar, la app funciona igual**, solo que no guarda registros.
+
+Para activarlo:
+
+1. En [Firebase Console](https://console.firebase.google.com), entrá a tu
+   proyecto → ⚙️ **Configuración del proyecto** → **Cuentas de servicio** →
+   **Generar nueva clave privada**. Te baja un JSON.
+2. Guardalo como `serviceAccountKey.json` en la raíz del proyecto.
+   Ya está en `.gitignore`: **nunca lo subas al repo**. Da acceso completo al
+   proyecto de Firebase; si se te filtra, revocala desde la misma pantalla.
+3. En la consola, pestaña **Firestore Database → Reglas**, pegá esto:
+
+   ```
+   service cloud.firestore {
+     match /databases/{database}/documents {
+       match /{document=**} {
+         allow read, write: if false;
+       }
+     }
+   }
+   ```
+
+   Esto bloquea todo acceso desde navegadores. El servidor no pasa por las
+   reglas: autentica con la clave de servicio vía IAM. Como la app se sirve por
+   una URL pública y no tiene login, esta es la configuración correcta — el
+   "modo de prueba" de Firestore dejaría que cualquiera con el link te borre el
+   historial.
+
+4. `npm start`. El banner te dice si quedó activo:
+
+   ```
+   📜 Historial: activo (proyecto votos-chavalines)
+   ```
+
+Alternativa a los pasos 1-2: apuntar la variable estándar de Google a otra ruta.
+
+```bash
+GOOGLE_APPLICATION_CREDENTIALS=/ruta/al/key.json npm start
+```
+
+Una vez configurado, el admin ve el botón **HISTORIAL** en su panel:
+
+- **Ranking histórico** — 🏆 torneos ganados y 🎵 rondas ganadas, contados por
+  separado. Se cuentan aparte a propósito: las rondas normales son muchas por
+  noche y taparían a los torneos, que son pocos y significativos.
+- **Últimos torneos** — fecha, tipo, ganador y puntaje, del más reciente al más
+  viejo. Los empates se marcan con 🤝 y cuentan como victoria para cada uno.
+
+Se registra tanto el cierre de un torneo de estrellas como el de cada ronda
+normal, diferenciados por el campo `tipo`. El registro se escribe en el momento
+en que se decide el resultado y **nunca bloquea la partida**: si Firestore falla,
+se pierde ese registro, se loguea en consola y el juego sigue igual.
 
 ---
 
@@ -61,30 +129,41 @@ proyecto/
 │
 ├── server.js              ← Servidor principal (Node.js + Socket.IO)
 │
+├── data/
+│   ├── concursantes.json  ← FUENTE ÚNICA de los concursantes (ver más abajo)
+│   └── estado.json        ← Puntajes acumulados. Se genera solo, no se commitea
+│
+├── test/
+│   └── concursantes.test.js  ← npm test
+│
 └── public/                ← Todo lo que el navegador puede ver
     ├── index.html         ← Estructura HTML de la app
     ├── style.css          ← Estilos y diseño responsive
     ├── script.js          ← Lógica del cliente (Socket.IO + UI)
     │
-    ├── tambores.mp3       ← Audio de suspenso
-    ├── claudio.mp3        ← Audio victoria Claudio (v1)
-    ├── claudio2.mp3       ← Audio victoria Claudio (v2)
-    ├── ferchos.mp3
-    ├── ferchos2.mp3
-    ├── bombo.mp3
-    ├── bombo2.mp3
-    ├── pitrisio.mp3
-    ├── pitrisio2.mp3
-    ├── empate_.mp3        ← Audio de empate
+    ├── media/             ← Fotos optimizadas que sirve la app (máx 600px, ~35 KB)
+    │   ├── claudio.jpg
+    │   ├── claudio_2.jpg
+    │   └── ...
     │
-    ├── claudio.png        ← Fotos de cada concursante
-    ├── claudio_2.jpeg
-    ├── claudio_3.jpeg
-    ├── claudio_4.jpeg
-    ├── ferchos.png
-    ├── ferchos_2.jpeg
-    ├── ... (misma estructura para bombo y pitrisio)
+    ├── claudio.png        ← Originales. No se sirven; quedan como fuente
+    ├── claudio_2.jpeg     ←   para regenerar media/ si hace falta
+    ├── ...
+    │
+    ├── tambores.mp3       ← Audio de suspenso
+    ├── empate_.mp3        ← Audio de empate
+    ├── claudio.mp3        ← Audios de victoria (algunos tienen 2 variantes)
+    ├── claudio2.mp3
+    └── ...
 ```
+
+> Para regenerar `public/media/` desde los originales (requiere ffmpeg):
+> ```bash
+> cd public
+> for f in *.png *.jpeg; do
+>   ffmpeg -y -i "$f" -vf "scale=w='min(600,iw)':h='min(600,ih)':force_original_aspect_ratio=decrease" -q:v 4 "media/${f%.*}.jpg"
+> done
+> ```
 
 ---
 
@@ -94,21 +173,36 @@ Escrito en **Node.js**. Es el cerebro del juego: guarda el estado de todos los j
 
 ### Configuración inicial
 
-```js
-const CONCURSANTES = ["Claudio 🍑🃏", "Ferchos 🙈🐵 ", "Bombo 🐷🐷", "Pitrisio 😭😭"]
-```
-Lista fija de jugadores válidos. Si alguien intenta conectarse con un nombre que no esté aquí, el servidor lo rechaza.
+Los concursantes **no están escritos en el código**: se leen de `data/concursantes.json`.
+El servidor valida el archivo al arrancar (ids únicos y válidos, nombre, al menos un audio)
+y se lo manda al cliente, que arma la grilla de personajes con eso.
 
-```js
-const GALERIA = { "Claudio 🍑🃏": ["claudio.png", "claudio_2.jpeg", ...], ... }
+```json
+{
+  "id": "claudio",              // ← la clave de TODO el sistema
+  "nombre": "Claudio",          // ← lo que se ve debajo del emoji
+  "emojis": "🍑🃏",             // ← decoración que acompaña al nombre
+  "avatar": "🍑",               // ← el emoji grande
+  "galeria": ["media/claudio.jpg", "..."],
+  "audios": ["claudio.mp3", "claudio2.mp3"]
+}
 ```
-Mapa de fotos por concursante. Al mostrar resultados, el servidor elige una foto aleatoria del ganador.
+
+Al mostrar resultados el servidor elige una foto y un audio al azar de los que
+el ganador tenga declarados. Como solo puede elegir archivos listados ahí,
+no puede pedir uno que no exista.
+
+### Persistencia
+
+`puntajeAcumulado` se guarda en `data/estado.json` cada vez que cambia (acumular
+ronda, cerrar torneo, reiniciar puntajes) y se recupera al arrancar. Si el proceso
+se cae a mitad de un torneo, el acumulado sobrevive.
 
 ### Variables de estado global
 
 | Variable | Tipo | Qué guarda |
 |---|---|---|
-| `usuarios` | Objeto | `{ socketId: { name, role } }` — todos los conectados |
+| `usuarios` | Objeto | `{ socketId: { id, role } }` — todos los conectados |
 | `adminSocketId` | String | ID del socket del admin actual |
 | `votacionAbierta` | Boolean | Si hay una ronda en curso |
 | `modoJuego` | String | `'normal'` o `'estrellas'` |
@@ -116,7 +210,8 @@ Mapa de fotos por concursante. Al mostrar resultados, el servidor elige una foto
 | `votosEstrellas` | Objeto | `{ socketId: { candidato: puntos } }` — votos en modo estrellas |
 | `puntajeAcumulado` | Objeto | `{ candidato: total }` — puntos acumulados entre rondas |
 | `inactivityTimers` | Objeto | Timers de 5 min por usuario inactivo |
-| `usuariosActivos` | Set | Nombres de usuarios conectados (previene sesiones duplicadas) |
+| `usuariosActivos` | Set | Ids de usuarios conectados (previene sesiones duplicadas) |
+| `resultadosTimer` | Timeout | Timer del suspenso, cancelable si el admin vuelve al lobby |
 
 ### Funciones del servidor
 
@@ -142,7 +237,7 @@ Manda al admin el estado completo en tiempo real: qué jugadores están conectad
 
 | Evento | Quién lo manda | Qué hace |
 |---|---|---|
-| `join_game` | Cliente | Login de usuario o admin. Valida nombre/contraseña, transfiere votos si reconecta |
+| `join_game` | Cliente | Login. Usuario manda `{ role:'user', id }`; admin `{ role:'admin', password }`. Transfiere votos si reconecta |
 | `cast_vote` | Usuario | Registra un voto en modo normal. Valida que no se vote a sí mismo |
 | `cast_star_vote` | Usuario | Registra calificaciones de estrellas. Valida que nadie tenga 0 |
 | `heartbeat` | Usuario | Señal de vida cada 30s para resetear el timer de inactividad |
@@ -159,7 +254,7 @@ Manda al admin el estado completo en tiempo real: qué jugadores están conectad
 
 | Evento | A quién | Qué contiene |
 |---|---|---|
-| `login_success` | Cliente | `{ name, role }` |
+| `login_success` | Cliente | `{ id, role }` (`id` es `null` para el admin) |
 | `login_failed` | Cliente | Mensaje de error |
 | `session_replaced` | Cliente viejo | Aviso de que su sesión fue tomada |
 | `round_started` | Todos | `{ mode, candidates, alreadyVoted }` |
@@ -167,11 +262,12 @@ Manda al admin el estado completo en tiempo real: qué jugadores están conectad
 | `vote_error` | Usuario | Mensaje de error de voto |
 | `admin_update_status` | Admin | Estado completo: jugadores, votos, puntajes |
 | `pre_results` | Todos | Señal para mostrar pantalla de suspenso |
-| `round_ended` | Todos | `{ mode, votes, audioVariant, winnerImage }` |
+| `round_ended` | Todos | `{ mode, votes, audio, winnerImage }` — `votes` va indexado por id; `audio` ya viene resuelto |
 | `force_new_round_ui` | Todos | Resetea la UI para nueva ronda en modo estrellas |
 | `notification` | Todos | Mensaje tipo toast informativo |
 | `return_to_lobby` | Todos | Regresa a todos al lobby |
 | `heartbeat_ack` | Usuario | Confirmación de heartbeat |
+| `contestants` | Cliente | Lista de concursantes al conectar. El cliente arma la UI con esto |
 
 ---
 
@@ -265,14 +361,15 @@ Escrito en **JavaScript Vanilla**. Maneja toda la interfaz de usuario y la comun
 | Variable | Qué guarda |
 |---|---|
 | `myRole` | `'user'` o `'admin'` |
-| `myName` | Nombre del jugador actual |
+| `myId` | Id del jugador actual (`'bombo'`, no `'Bombo 🐷🐷'`) |
 | `myEmoji` | Emoji del personaje actual |
 | `currentMode` | Modo de la ronda activa (`'normal'` o `'estrellas'`) |
-| `misCalificaciones` | `{ candidato: estrellas }` — calificaciones actuales del usuario |
-| `selectedCharName` | Nombre del personaje seleccionado en el login |
+| `misCalificaciones` | `{ id: estrellas }` — calificaciones actuales del usuario |
+| `selectedCharId` | Id del personaje seleccionado en el login |
 | `isLoggingIn` | Bandera para evitar doble-login durante reconexión |
 | `heartbeatInterval` | Referencia al intervalo del heartbeat |
-| `ASSETS` | Mapa de emoji y nombre de audio por concursante |
+| `ROSTER` | `Map` de concursantes que mandó el servidor. Se consulta con `nombreDe(id)` y `emojiDe(id)` |
+| `pendingScreen` | Pantalla a la que se quiere llegar; descarta transiciones que quedaron viejas |
 
 ### Funciones principales
 
@@ -284,18 +381,22 @@ Oculta todas las pantallas y activa la pedida con una transición de fade.
 
 #### Login y sesión
 ```js
+renderCharacterGrid() // Arma los botones de personaje con lo que mandó el servidor
 selectChar(btn)       // Selecciona un personaje en el login, habilita el botón de entrar
-loginUser()           // Guarda el nombre en localStorage y emite join_game
+loginUser()           // Guarda el id en localStorage y emite join_game
 loginAdmin()          // Emite join_game con contraseña
 logout()              // Borra localStorage y recarga la página
-attemptAutoLogin()    // Se ejecuta al conectar el socket; lee localStorage y reconecta automáticamente
+attemptAutoLogin()    // Lee el id de localStorage y reconecta automáticamente
+idGuardado()          // Devuelve el id guardado, migrando el formato viejo (nombre con emojis)
 ```
 
 #### Reconexión robusta
-El auto-login está enganchado al evento `connect` del socket, no al `window.onload`. Esto evita la condición de carrera donde el socket aún no estaba listo cuando la página terminaba de cargar.
+El auto-login está enganchado al evento `contestants` del socket, no al `window.onload` ni al `connect`: hace falta el roster para poder validar el id guardado.
 
 ```js
-socket.on('connect', () => {
+socket.on('contestants', (lista) => {
+    lista.forEach(c => ROSTER.set(c.id, c));
+    renderCharacterGrid();
     attemptAutoLogin(); // Un solo punto de verdad para el auto-login
 });
 ```
@@ -381,34 +482,32 @@ Usuario vuelve a abrir la URL → socket emite 'connect'
 
 ---
 
-## 🗒️ Notas para agregar nuevos jugadores
+## 🗒️ Cómo agregar un jugador nuevo
 
-Para añadir un concursante nuevo hay que editar **3 lugares** en `server.js`:
+**Un solo lugar:** `data/concursantes.json`.
 
-```js
-// 1. Agregar a la lista de concursantes
-const CONCURSANTES = [
-    "Claudio 🍑🃏",
-    "Ferchos 🙈🐵 ",
-    "Bombo 🐷🐷",
-    "Pitrisio 😭😭",
-    "NuevoJugador 🎮"   // ← aquí
-];
+1. Copiá las fotos y los audios a `public/` (y generá las versiones optimizadas en `public/media/`, ver arriba).
+2. Agregá el objeto al array:
 
-// 2. Agregar sus fotos
-const GALERIA = {
-    ...
-    "NuevoJugador 🎮": ["nuevo.png", "nuevo_2.jpeg"]   // ← aquí
-};
+```json
+{
+  "id": "nuevo",
+  "nombre": "NuevoJugador",
+  "emojis": "🎮",
+  "avatar": "🎮",
+  "galeria": ["media/nuevo.jpg", "media/nuevo_2.jpg"],
+  "audios": ["nuevo.mp3"]
+}
 ```
 
-Y en `script.js`:
-```js
-// 3. Agregar su emoji y nombre de audio
-const ASSETS = {
-    ...
-    "NuevoJugador 🎮": { emoji: "🎮", baseName: "nuevo" }   // ← aquí
-};
-```
+3. `npm test` — falla si alguna foto o audio no existe.
+4. `npm start`.
+
+No hay que tocar `server.js`, `index.html` ni `script.js`. El `id` es la clave interna
+(minúsculas, sin espacios ni emojis); `nombre` + `emojis` es solo lo que se muestra.
+
+> **Antes** el nombre completo con emojis era la clave, escrito a mano en 3 archivos.
+> Uno de ellos (`"Ferchos 🙈🐵 "`) tenía un espacio final invisible que había que
+> replicar exactamente en cada sitio o el jugador no podía entrar.
 
 También agregar el botón en `index.html` dentro de `#character-grid` y subir las fotos y audios a la carpeta `public/`.

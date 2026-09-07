@@ -1,0 +1,59 @@
+{
+  "_comentario": "Fuente unica de verdad de los concursantes. El servidor lee este archivo y se lo manda al cliente; no hay nombres escritos a mano en server.js, index.html ni script.js. Para agregar a alguien: agregas un objeto aca con un id nuevo (minusculas, sin espacios ni emojis) y listo. 'npm test' verifica que todos los archivos referenciados existan.",
+  "concursantes": [
+    {
+      "id": "claudio",
+      "nombre": "Claudio",
+      "emojis": "🍑🃏",
+      "avatar": "🍑",
+      "galeria": [
+        "media/claudio.jpg",
+        "media/claudio_2.jpg",
+        "media/claudio_3.jpg",
+        "media/claudio_4.jpg"
+      ],
+      "audios": ["claudio.mp3", "claudio2.mp3"]
+    },
+    {
+      "id": "ferchos",
+      "nombre": "Ferchos",
+      "emojis": "🙈🐵",
+      "avatar": "🙈",
+      "galeria": [
+        "media/ferchos.jpg",
+        "media/ferchos_2.jpg",
+        "media/ferchos_3.jpg",
+        "media/ferchos_4.jpg",
+        "media/ferchos_6.jpg"
+      ],
+      "audios": ["ferchos.mp3"]
+    },
+    {
+      "id": "bombo",
+      "nombre": "Bombo",
+      "emojis": "🐷🐷",
+      "avatar": "🐷",
+      "galeria": [
+        "media/bombo.jpg",
+        "media/bombo_2.jpg",
+        "media/bombo_3.jpg",
+        "media/bombo_4.jpg"
+      ],
+      "audios": ["bombo.mp3", "bombo2.mp3"]
+    },
+    {
+      "id": "pitrisio",
+      "nombre": "Pitrisio",
+      "emojis": "😭😭",
+      "avatar": "😭",
+      "galeria": [
+        "media/pitrisio.jpg",
+        "media/pitrisio_2.jpg",
+        "media/pitrisio_3.jpg",
+        "media/pitrisio_4.jpg"
+      ],
+      "audios": ["pitrisio.mp3", "pitrisio2.mp3"]
+    }
+  ],
+  "audioEmpate": "empate_.mp3"
+}

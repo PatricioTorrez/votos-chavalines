@@ -14,23 +14,45 @@ const socket = io({
 
 // --- ESTADO LOCAL ---
 let myRole    = 'user';
-let myName    = '';
+let myId      = '';
 let myEmoji   = '';
 let currentMode        = 'normal';
 let misCalificaciones  = {};
-let selectedCharName   = '';
+let selectedCharId     = '';
 let isLoggingIn        = false;
 let audioTimeout       = null;
 let heartbeatInterval  = null;
 let countdownInterval  = null;
 
-// Mapa de assets por nombre de concursante
-const ASSETS = {
-    "Claudio 🍑🃏":  { emoji: "🍑", baseName: "claudio"  },
-    "Ferchos 🙈🐵 ": { emoji: "🙈", baseName: "ferchos"  },
-    "Bombo 🐷🐷":    { emoji: "🐷", baseName: "bombo"    },
-    "Pitrisio 😭😭": { emoji: "😭", baseName: "pitrisio" },
-};
+// ============================================================
+//  REGISTRO DE CONCURSANTES
+//  Lo manda el servidor al conectar (evento 'contestants'), leido de
+//  data/concursantes.json. El cliente no tiene ningun nombre hardcodeado:
+//  el id es la clave, el nombre visible es solo presentacion.
+// ============================================================
+const ROSTER = new Map();   // id -> { id, nombre, emojis, avatar, display }
+
+function chr(id)      { return ROSTER.get(id) || null; }
+function nombreDe(id) { return chr(id)?.display || id; }
+function emojiDe(id)  { return chr(id)?.avatar  || '🎮'; }
+
+const STORAGE_KEY = 'chavalines_user';
+
+// Devuelve el id guardado, migrando el formato viejo (que guardaba el nombre
+// visible con emojis) al id nuevo.
+function idGuardado() {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    if (ROSTER.has(raw)) return raw;
+    for (const c of ROSTER.values()) {
+        if (c.display.trim() === raw.trim()) {
+            localStorage.setItem(STORAGE_KEY, c.id);
+            return c.id;
+        }
+    }
+    localStorage.removeItem(STORAGE_KEY);
+    return null;
+}
 
 // ============================================================
 //  MOTOR DE SONIDOS 8-BIT (Web Audio API — sin dependencias)
@@ -99,6 +121,32 @@ if (confettiCanvas && window.confetti) {
     myConfetti = confetti.create(confettiCanvas, { resize: true, useWorker: true });
 }
 
+// ============================================================
+//  MOTION — helpers
+//  Todo el movimiento de GSAP pasa por aca para que
+//  prefers-reduced-motion tambien lo alcance (el CSS solo no basta).
+// ============================================================
+const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)');
+function reducedMotion() { return REDUCED_MOTION.matches; }
+
+// Entrada estandar. Con reduced-motion: solo opacidad, sin desplazamiento ni stagger.
+// clearProps borra el transform inline al terminar para no pisar los estados CSS
+// (.selected, :active) del elemento.
+function animIn(targets, opts = {}) {
+    if (!window.gsap) return;
+    const { y = 0, x = 0, duration = 0.35, delay = 0, stagger = 0, ease = 'power3.out' } = opts;
+    if (reducedMotion()) {
+        gsap.fromTo(targets,
+            { opacity: 0 },
+            { opacity: 1, duration: 0.15, delay: Math.min(delay, 0.08), stagger: 0,
+              ease: 'none', clearProps: 'opacity,transform' });
+        return;
+    }
+    gsap.fromTo(targets,
+        { opacity: 0, y, x },
+        { opacity: 1, y: 0, x: 0, duration, delay, stagger, ease, clearProps: 'opacity,transform' });
+}
+
 // --- PANTALLAS ---
 const screens = {
     login:    document.getElementById('screen-login'),
@@ -108,46 +156,68 @@ const screens = {
     results:  document.getElementById('screen-results'),
 };
 
+// Apaga una pantalla de inmediato, matando cualquier tween a medio camino.
+function hardHideScreen(el) {
+    if (window.gsap) gsap.killTweensOf(el);
+    el.classList.remove('active');
+    el.style.display = 'none';
+    if (window.gsap) gsap.set(el, { clearProps: 'all' });
+}
+
+// Pantalla a la que se quiere llegar. Si llegan dos cambios seguidos
+// (pre_results -> round_ended -> return_to_lobby, o el usuario vuelve de otra
+// app y los tweens congelados se descongelan todos juntos), la transicion vieja
+// se descarta en vez de terminar mostrando su propia pantalla.
+let pendingScreen = null;
+
+// Deja visible SOLO esta pantalla. Es el unico lugar que enciende una pantalla,
+// asi que el invariante "exactamente una visible" se sostiene siempre.
+function revealScreen(target, animar = true) {
+    Object.values(screens).forEach(s => { if (s !== target) hardHideScreen(s); });
+    if (window.gsap) gsap.killTweensOf(target);
+    target.style.display = 'flex';
+    void target.offsetWidth;
+    target.classList.add('active');
+    if (animar) {
+        // Solo opacity + transform: animar 'filter' sobre la pantalla completa
+        // repinta todo el arbol en cada frame y tira los FPS en movil.
+        animIn(target, { y: 18, duration: 0.32 });
+    } else if (window.gsap) {
+        gsap.set(target, { clearProps: 'all' });
+    }
+}
+
 function showScreen(name) {
     const target = screens[name];
     if (!target) return;
 
     const current = document.querySelector('.screen.active');
+    pendingScreen = target;
 
-    const doShow = () => {
-        target.style.display = 'flex';
-        void target.offsetWidth;
-        target.classList.add('active');
+    // Ya estamos aca: solo garantizar que quedo visible y limpia
+    // (un tween congelado pudo dejarla a medio opacar).
+    if (current === target) return revealScreen(target, false);
 
-        if (window.gsap) {
-            gsap.fromTo(target,
-                { opacity: 0, y: 18, filter: 'brightness(2) saturate(0.3)' },
-                { opacity: 1, y: 0, filter: 'brightness(1) saturate(1)', duration: 0.4, ease: 'power3.out' }
-            );
-        }
+    const finish = () => {
+        // Mientras corria la salida llego otro showScreen: este quedo viejo.
+        if (pendingScreen !== target) return;
+        revealScreen(target);
     };
 
-    if (current && current !== target) {
-        if (window.gsap) {
-            gsap.to(current, {
-                opacity: 0, y: -12,
-                filter: 'brightness(1.5) saturate(0)',
-                duration: 0.25,
-                ease: 'power2.in',
-                onComplete: () => {
-                    current.classList.remove('active');
-                    current.style.display = 'none';
-                    gsap.set(current, { clearProps: 'all' });
-                    doShow();
-                }
-            });
-        } else {
-            current.classList.remove('active');
-            current.style.display = 'none';
-            doShow();
-        }
+    if (current && window.gsap) {
+        // overwrite mata cualquier salida ya en curso sobre la misma pantalla:
+        // sin esto quedaban dos tweens vivos y cada onComplete encendia la suya.
+        gsap.killTweensOf(current);
+        gsap.to(current, {
+            opacity: 0,
+            y: reducedMotion() ? 0 : -12,
+            duration: reducedMotion() ? 0.12 : 0.18,
+            ease: 'power3.out',
+            overwrite: true,
+            onComplete: finish,
+        });
     } else {
-        doShow();
+        finish();
     }
 }
 
@@ -164,7 +234,9 @@ function showToast(message, type = 'info') {
     toast.className = `toast toast-${type}`;
     toast.textContent = message;
     container.appendChild(toast);
-    setTimeout(() => toast.classList.add('show'), 10);
+    // Dos frames: garantiza que el estado inicial se pinto antes de transicionar.
+    // setTimeout(…, 10) puede dispararse antes del paint en un frame cargado.
+    requestAnimationFrame(() => requestAnimationFrame(() => toast.classList.add('show')));
     setTimeout(() => {
         toast.classList.remove('show');
         setTimeout(() => toast.remove(), 400);
@@ -202,6 +274,14 @@ function stopHeartbeat() {
 socket.on('connect', () => {
     console.log('✅ Socket conectado:', socket.id);
     updateConnectionStatus('connected');
+    // El auto-login espera al roster: sin el no se puede validar el id guardado.
+});
+
+// El servidor manda esto apenas conecta, tambien al reconectar.
+socket.on('contestants', (lista) => {
+    ROSTER.clear();
+    lista.forEach(c => ROSTER.set(c.id, c));
+    renderCharacterGrid();
     attemptAutoLogin();
 });
 
@@ -224,12 +304,12 @@ socket.on('reconnect', () => {
 });
 
 function attemptAutoLogin() {
-    if (isLoggingIn || myName) return;
-    const savedUser = localStorage.getItem('chavalines_user');
-    if (savedUser) {
+    if (isLoggingIn || myId || !ROSTER.size) return;
+    const saved = idGuardado();
+    if (saved) {
         isLoggingIn = true;
-        console.log('🔄 Auto-login como:', savedUser);
-        socket.emit('join_game', { role: 'user', name: savedUser });
+        console.log('🔄 Auto-login como:', nombreDe(saved));
+        socket.emit('join_game', { role: 'user', id: saved });
     }
 }
 
@@ -238,50 +318,65 @@ function attemptAutoLogin() {
 // ============================================================
 let selectedCharBtn = null;
 
+// Arma los botones a partir del roster y restaura la seleccion guardada.
+function renderCharacterGrid() {
+    const grid = document.getElementById('character-grid');
+    if (!grid) return;
+
+    const guardado = idGuardado();
+    grid.innerHTML = '';
+    selectedCharBtn = null;
+
+    ROSTER.forEach(c => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'char-btn';
+        btn.dataset.id = c.id;
+        btn.innerHTML = `<span class="char-emoji">${escapeHtml(c.avatar)}</span>
+            <span class="char-name">${escapeHtml(c.nombre)}</span>`;
+        btn.addEventListener('click', () => selectChar(btn));
+        grid.appendChild(btn);
+
+        if (c.id === guardado) {
+            btn.classList.add('saved', 'selected');
+            selectedCharBtn = btn;
+            selectedCharId  = c.id;
+        }
+    });
+
+    const loginBtn = document.getElementById('btn-login-user');
+    if (loginBtn) loginBtn.disabled = !selectedCharId;
+}
+
 function selectChar(btn) {
     SFX.select();
     if (selectedCharBtn) selectedCharBtn.classList.remove('selected');
     selectedCharBtn = btn;
     btn.classList.add('selected');
-    selectedCharName = btn.dataset.name;
-
-    // Animación GSAP de selección
-    if (window.gsap) {
-        gsap.fromTo(btn,
-            { scale: 0.92 },
-            { scale: 1, duration: 0.35, ease: 'back.out(2)' }
-        );
-    }
+    selectedCharId = btn.dataset.id;
+    // El feedback de pulsacion lo da .char-btn:active en CSS; un tween de scale
+    // encima dejaba un transform inline que anulaba el translateY de .selected.
 
     const loginBtn = document.getElementById('btn-login-user');
     if (loginBtn) loginBtn.disabled = false;
 }
 
 window.addEventListener('DOMContentLoaded', () => {
-    const saved = localStorage.getItem('chavalines_user');
-    if (saved) {
-        const allBtns = document.querySelectorAll('.char-btn');
-        allBtns.forEach(b => {
-            if (b.dataset.name === saved) {
-                b.classList.add('saved', 'selected');
-                selectedCharBtn  = b;
-                selectedCharName = saved;
-                const loginBtn = document.getElementById('btn-login-user');
-                if (loginBtn) loginBtn.disabled = false;
-            }
-        });
-    }
-
+    // La grilla y la seleccion guardada las arma renderCharacterGrid() cuando
+    // llega el roster del servidor.
     const passInput = document.getElementById('adminPass');
     if (passInput) passInput.addEventListener('keypress', e => { if (e.key === 'Enter') loginAdmin(); });
 
     // Animación de entrada inicial con GSAP
     if (window.gsap) {
         const shell = document.querySelector('.app-shell');
-        gsap.fromTo(shell,
-            { opacity: 0, scale: 0.96, filter: 'brightness(2) saturate(0)' },
-            { opacity: 1, scale: 1, filter: 'brightness(1) saturate(1)', duration: 0.7, ease: 'power3.out' }
-        );
+        if (reducedMotion()) {
+            gsap.fromTo(shell, { opacity: 0 }, { opacity: 1, duration: 0.2, ease: 'none' });
+        } else {
+            gsap.fromTo(shell,
+                { opacity: 0, scale: 0.96 },
+                { opacity: 1, scale: 1, duration: 0.45, ease: 'power3.out', clearProps: 'transform' });
+        }
     }
 });
 
@@ -296,12 +391,12 @@ function toggleAdmin() {
 }
 
 function loginUser() {
-    if (!selectedCharName) return showToast('Elige tu personaje primero', 'error');
+    if (!selectedCharId) return showToast('Elige tu personaje primero', 'error');
     if (isLoggingIn) return;
     SFX.coin();
     isLoggingIn = true;
-    localStorage.setItem('chavalines_user', selectedCharName);
-    socket.emit('join_game', { role: 'user', name: selectedCharName });
+    localStorage.setItem(STORAGE_KEY, selectedCharId);
+    socket.emit('join_game', { role: 'user', id: selectedCharId });
 }
 
 function loginAdmin() {
@@ -310,15 +405,15 @@ function loginAdmin() {
     if (isLoggingIn) return;
     SFX.coin();
     isLoggingIn = true;
-    localStorage.removeItem('chavalines_user');
+    localStorage.removeItem(STORAGE_KEY);
     socket.emit('join_game', { role: 'admin', password: pass });
 }
 
 function logout() {
-    localStorage.removeItem('chavalines_user');
+    localStorage.removeItem(STORAGE_KEY);
     stopHeartbeat();
     isLoggingIn = false;
-    myName = '';
+    myId = '';
     location.reload();
 }
 
@@ -326,17 +421,16 @@ function logout() {
 //  EVENTOS DEL SERVIDOR
 // ============================================================
 
-socket.on('login_success', ({ name, role }) => {
+socket.on('login_success', ({ id, role }) => {
     isLoggingIn = false;
-    myName = name;
+    myId   = id || '';
     myRole = role;
 
-    const asset = ASSETS[name];
-    myEmoji = asset ? asset.emoji : '🎮';
+    myEmoji = role === 'admin' ? '🎮' : emojiDe(id);
 
     const dispEl   = document.getElementById('my-name-display');
     const avatarEl = document.getElementById('lobby-avatar');
-    if (dispEl)   dispEl.textContent   = name;
+    if (dispEl)   dispEl.textContent   = role === 'admin' ? 'ADMIN' : nombreDe(id);
     if (avatarEl) avatarEl.textContent = myEmoji;
 
     if (role === 'admin') {
@@ -357,12 +451,12 @@ socket.on('login_success', ({ name, role }) => {
 
 socket.on('login_failed', (msg) => {
     isLoggingIn = false;
-    localStorage.removeItem('chavalines_user');
+    localStorage.removeItem(STORAGE_KEY);
     showToast(msg, 'error');
     showScreen('login');
     if (selectedCharBtn) selectedCharBtn.classList.remove('selected');
-    selectedCharBtn  = null;
-    selectedCharName = '';
+    selectedCharBtn = null;
+    selectedCharId  = '';
     const loginBtn = document.getElementById('btn-login-user');
     if (loginBtn) loginBtn.disabled = true;
 });
@@ -375,39 +469,81 @@ socket.on('session_replaced', (msg) => {
 socket.on('heartbeat_ack', () => {});
 
 // --- ADMIN STATUS ---
+// Reconcilia una lista de jugadores por nombre, creando solo las filas nuevas y
+// actualizando el resto, para que los cambios de estado puedan transicionar.
+function syncPlayerRows(list, players, build, apply) {
+    if (!list) return;
+
+    if (!players.length) {
+        if (!list.querySelector('.muted-text')) {
+            list.innerHTML = '<p class="muted-text">Esperando jugadores…</p>';
+        }
+        return;
+    }
+    const placeholder = list.querySelector('.muted-text');
+    if (placeholder) placeholder.remove();
+
+    const existing = new Map(
+        [...list.children].map(el => [el.dataset.player, el])
+    );
+
+    players.forEach((p, i) => {
+        let row = existing.get(p.id);
+        if (!row) {
+            row = build(p);
+            row.dataset.player = p.id;
+            list.appendChild(row);
+            animIn(row, { y: 8, duration: 0.25 });
+        } else {
+            existing.delete(p.id);
+        }
+        apply(row, p);
+        if (list.children[i] !== row) list.insertBefore(row, list.children[i] || null);
+    });
+
+    existing.forEach(row => row.remove());
+}
+
+function buildLobbyRow(p) {
+    const row = document.createElement('div');
+    row.className = 'lobby-player-card';
+    row.innerHTML = `<span class="player-emoji">${escapeHtml(emojiDe(p.id))}</span>
+        <span class="player-name-sm">${escapeHtml(nombreDe(p.id))}</span>
+        <span class="player-status">·</span>`;
+    return row;
+}
+function applyLobbyRow(row, p) {
+    const status = row.querySelector('.player-status');
+    if (!status) return;
+    status.classList.toggle('voted', p.hasVoted);
+    const text = p.hasVoted ? '✓' : '·';
+    if (status.textContent !== text) status.textContent = text;
+}
+
+function buildLiveRow(p) {
+    const row = document.createElement('div');
+    row.className = 'live-row';
+    row.innerHTML = `<span>${escapeHtml(emojiDe(p.id))} ${escapeHtml(nombreDe(p.id))}</span>
+        <span class="live-status"></span>`;
+    return row;
+}
+function applyLiveRow(row, p) {
+    row.classList.toggle('voted', p.hasVoted);
+    row.classList.toggle('waiting', !p.hasVoted);
+    const status = row.querySelector('.live-status');
+    if (!status) return;
+    const text = p.hasVoted ? 'LISTO ✓' : 'PENSANDO…';
+    if (status.textContent !== text) status.textContent = text;
+}
+
 socket.on('admin_update_status', (data) => {
     if (myRole !== 'admin') return;
 
-    const lobbyList = document.getElementById('lobby-list');
-    if (lobbyList) {
-        if (data.players.length === 0) {
-            lobbyList.innerHTML = '<p class="muted-text">Esperando jugadores…</p>';
-        } else {
-            lobbyList.innerHTML = data.players.map(p => {
-                const asset = ASSETS[p.name];
-                const emoji = asset ? asset.emoji : '🎮';
-                return `<div class="lobby-player-card">
-                    <span class="player-emoji">${emoji}</span>
-                    <span class="player-name-sm">${escapeHtml(p.name)}</span>
-                    <span class="player-status ${p.hasVoted ? 'voted' : ''}">${p.hasVoted ? '✓' : '·'}</span>
-                </div>`;
-            }).join('');
-        }
-    }
-
-    const liveList = document.getElementById('live-voting-list');
-    if (liveList) {
-        liveList.innerHTML = data.players.map(p => {
-            const asset = ASSETS[p.name];
-            const emoji = asset ? asset.emoji : '🎮';
-            const statusClass = p.hasVoted ? 'voted' : 'waiting';
-            const statusText  = p.hasVoted ? 'LISTO ✓' : 'PENSANDO…';
-            return `<div class="live-row ${statusClass}">
-                <span>${emoji} ${escapeHtml(p.name)}</span>
-                <span class="live-status">${statusText}</span>
-            </div>`;
-        }).join('');
-    }
+    // Se parchea en sitio en vez de rehacer el innerHTML: al recrear los nodos en
+    // cada update ninguna transicion CSS llegaba a correr, y esta pantalla existe
+    // justamente para ver quien va votando.
+    syncPlayerRows(document.getElementById('lobby-list'), data.players, buildLobbyRow, applyLobbyRow);
+    syncPlayerRows(document.getElementById('live-voting-list'), data.players, buildLiveRow, applyLiveRow);
 
     if (data.modoJuego === 'estrellas') {
         hide('admin-controls-normal');
@@ -428,9 +564,8 @@ socket.on('admin_update_status', (data) => {
             if (scoresEl) {
                 const sorted = Object.entries(data.puntajeAcumulado).sort((a, b) => b[1] - a[1]);
                 scoresEl.innerHTML = `<p class="scores-label">ACUMULADO ACTUAL</p>` +
-                    sorted.map(([name, pts]) => {
-                        const a = ASSETS[name];
-                        return `<div class="score-row"><span>${a ? a.emoji : ''} ${escapeHtml(name)}</span><span class="score-pts">${pts} pts</span></div>`;
+                    sorted.map(([id, pts]) => {
+                        return `<div class="score-row"><span>${escapeHtml(emojiDe(id))} ${escapeHtml(nombreDe(id))}</span><span class="score-pts">${pts} pts</span></div>`;
                     }).join('');
             }
         }
@@ -463,33 +598,25 @@ socket.on('round_started', (data) => {
         if (container && myRole === 'user') {
             container.innerHTML = '';
             data.candidates.forEach((cand, i) => {
-                if (cand === myName) return;
-                const asset = ASSETS[cand];
+                if (cand === myId) return;
                 const card = document.createElement('div');
                 card.className = 'vote-card';
                 card.innerHTML = `
-                    <div class="vote-card-emoji">${asset ? asset.emoji : '🎮'}</div>
-                    <div class="vote-card-name">${escapeHtml(cand)}</div>
+                    <div class="vote-card-emoji">${escapeHtml(emojiDe(cand))}</div>
+                    <div class="vote-card-name">${escapeHtml(nombreDe(cand))}</div>
                     <div class="vote-card-check material-icons-round">check_circle</div>
                 `;
                 card.onclick = () => {
                     SFX.select();
                     document.querySelectorAll('.vote-card').forEach(c => c.classList.remove('selected'));
                     card.classList.add('selected');
-                    if (window.gsap) {
-                        gsap.fromTo(card, { scale: 0.96 }, { scale: 1, duration: 0.3, ease: 'back.out(2)' });
-                    }
+                    // El estado .selected ya transiciona en CSS (borde, glow, check,
+                    // translateX) y :active da la pulsacion. Sin tween encima.
                     socket.emit('cast_vote', cand);
                 };
 
-                if (window.gsap) {
-                    card.style.opacity = '0';
-                    card.style.transform = 'translateX(-20px)';
-                    container.appendChild(card);
-                    gsap.to(card, { opacity: 1, x: 0, duration: 0.35, delay: i * 0.08, ease: 'power2.out' });
-                } else {
-                    container.appendChild(card);
-                }
+                container.appendChild(card);
+                animIn(card, { x: -20, duration: 0.32, delay: i * 0.06, ease: 'power2.out' });
             });
         }
 
@@ -517,9 +644,17 @@ socket.on('force_new_round_ui', () => {
     misCalificaciones = {};
     hide('waiting-msg');
     show('ui-stars');
-    document.querySelectorAll('.star-icon').forEach(s => {
-        s.classList.remove('active');
-        s.dataset.active = '0';
+    // Se vacian en cascada de derecha a izquierda: explica que la ronda se reinicio
+    // en vez de teletransportar las 15 estrellas a cero.
+    const icons = [...document.querySelectorAll('.star-icon')].reverse();
+    icons.forEach((s, i) => {
+        const clear = () => {
+            s.classList.remove('active');
+            s.dataset.active = '0';
+            s.textContent = 'star_rate';   // faltaba: el glifo relleno se quedaba pegado
+        };
+        if (reducedMotion() || !window.gsap) clear();
+        else setTimeout(clear, i * 22);
     });
     document.querySelectorAll('.star-card').forEach(c => c.classList.remove('card-error'));
     document.querySelector('.app-shell')?.scrollTo(0, 0);
@@ -530,6 +665,9 @@ socket.on('vote_success', () => {
     hide('ui-normal');
     hide('ui-stars');
     show('waiting-msg');
+    // El voto es el momento con mas carga de la ronda: que la confirmacion
+    // entre en vez de aparecer de golpe.
+    animIn(document.getElementById('waiting-msg'), { y: 12, duration: 0.28 });
 });
 
 socket.on('vote_error', (msg) => {
@@ -568,11 +706,14 @@ socket.on('pre_results', () => {
             disp.textContent = count;
             SFX.tick();
 
-            if (window.gsap) {
+            if (window.gsap && !reducedMotion()) {
+                // Se asienta bien antes del siguiente tick (1s); 0.75s se sentia blando.
                 gsap.fromTo(disp,
-                    { scale: 1.7, opacity: 0.6 },
-                    { scale: 1, opacity: 1, duration: 0.75, ease: 'power3.out' }
+                    { scale: 1.4, opacity: 0.6 },
+                    { scale: 1, opacity: 1, duration: 0.45, ease: 'power3.out', clearProps: 'transform' }
                 );
+            } else if (window.gsap) {
+                gsap.fromTo(disp, { opacity: 0.6 }, { opacity: 1, duration: 0.15, ease: 'none' });
             } else {
                 disp.classList.remove('pop');
                 void disp.offsetWidth;
@@ -616,25 +757,19 @@ socket.on('round_ended', (data) => {
         }());
     }
 
-    const { votes: puntosObj, audioVariant, winnerImage, mode } = data;
+    const { votes: puntosObj, audio, winnerImage, mode } = data;
     const label = mode === 'estrellas' ? 'pts' : 'votos';
 
     const resultsArr = Object.entries(puntosObj)
-        .map(([name, count]) => ({ name, count }))
+        .map(([id, count]) => ({ id, count }))
         .sort((a, b) => b.count - a.count);
 
     const maxScore = resultsArr[0].count;
     const winners  = resultsArr.filter(r => r.count === maxScore);
     const isTie    = winners.length > 1;
 
-    let audioFile = 'empate_.mp3';
-    if (!isTie) {
-        const wAsset = ASSETS[winners[0].name];
-        if (wAsset) {
-            audioFile = audioVariant === 2 ? `${wAsset.baseName}2.mp3` : `${wAsset.baseName}.mp3`;
-        }
-    }
-    playAudio(audioFile);
+    // El servidor ya resolvio que archivo suena (existe, y contempla el empate).
+    if (audio) playAudio(audio);
 
     const winSection = document.getElementById('winner-section');
     if (winSection) {
@@ -643,10 +778,9 @@ socket.on('round_ended', (data) => {
                 <div class="tie-header">¡EMPATE!</div>
                 <div class="tie-winners">
                     ${winners.map(w => {
-                        const a = ASSETS[w.name];
                         return `<div class="tie-winner-card">
-                            <div class="tie-emoji">${a ? a.emoji : '🏆'}</div>
-                            <div class="tie-name">${escapeHtml(w.name)}</div>
+                            <div class="tie-emoji">${escapeHtml(emojiDe(w.id))}</div>
+                            <div class="tie-name">${escapeHtml(nombreDe(w.id))}</div>
                             <div class="tie-score">${w.count} ${label}</div>
                         </div>`;
                     }).join('')}
@@ -654,19 +788,19 @@ socket.on('round_ended', (data) => {
             `;
         } else {
             const w = winners[0];
-            const a = ASSETS[w.name];
             const imgTag = winnerImage
-                ? `<img src="${escapeHtml(winnerImage)}" class="winner-img" alt="${escapeHtml(w.name)}">`
-                : `<div class="winner-emoji-fallback">${a ? a.emoji : '🏆'}</div>`;
+                ? `<img src="${escapeHtml(winnerImage)}" class="winner-img" width="150" height="150"
+                        decoding="async" alt="${escapeHtml(nombreDe(w.id))}">`
+                : `<div class="winner-emoji-fallback">${escapeHtml(emojiDe(w.id))}</div>`;
 
             winSection.innerHTML = `
                 <div class="winner-showcase">
                     <div class="winner-crown">🏆</div>
                     <div class="winner-avatar-ring">
                         ${imgTag}
-                        <div class="winner-badge-emoji">${a ? a.emoji : ''}</div>
+                        <div class="winner-badge-emoji">${escapeHtml(emojiDe(w.id))}</div>
                     </div>
-                    <div class="winner-name">${escapeHtml(w.name)}</div>
+                    <div class="winner-name">${escapeHtml(nombreDe(w.id))}</div>
                     <div class="winner-score">${w.count} ${label}</div>
                 </div>
             `;
@@ -676,11 +810,7 @@ socket.on('round_ended', (data) => {
                 setTimeout(() => {
                     const showcase = winSection.querySelector('.winner-showcase');
                     if (showcase) {
-                        const children = showcase.children;
-                        gsap.fromTo(children,
-                            { y: 30, opacity: 0, scale: 0.85 },
-                            { y: 0, opacity: 1, scale: 1, duration: 0.55, stagger: 0.12, ease: 'back.out(1.5)' }
-                        );
+                        animIn(showcase.children, { y: 30, duration: 0.5, stagger: 0.08, ease: 'back.out(1.5)' });
                     }
                 }, 100);
             }
@@ -690,21 +820,19 @@ socket.on('round_ended', (data) => {
     const podium = document.getElementById('podium');
     if (podium) {
         podium.innerHTML = resultsArr.slice(isTie ? 0 : 1).map((p, i) => {
-            const a = ASSETS[p.name];
             const rank = isTie ? i + 1 : i + 2;
             return `<div class="podium-row" style="opacity:0;transform:translateY(15px)">
                 <div class="podium-left">
                     <span class="podium-rank">${rank}°</span>
-                    <span class="podium-emoji">${a ? a.emoji : ''}</span>
-                    <span class="podium-name">${escapeHtml(p.name)}</span>
+                    <span class="podium-emoji">${escapeHtml(emojiDe(p.id))}</span>
+                    <span class="podium-name">${escapeHtml(nombreDe(p.id))}</span>
                 </div>
                 <span class="podium-score">${p.count} ${label}</span>
             </div>`;
         }).join('');
 
         if (window.gsap) {
-            const rows = podium.querySelectorAll('.podium-row');
-            gsap.to(rows, { opacity: 1, y: 0, duration: 0.4, stagger: 0.09, delay: 0.5, ease: 'power2.out' });
+            animIn(podium.querySelectorAll('.podium-row'), { y: 15, duration: 0.35, stagger: 0.07, delay: 0.5, ease: 'power2.out' });
         } else {
             podium.querySelectorAll('.podium-row').forEach(r => {
                 r.style.opacity = '1';
@@ -724,9 +852,8 @@ function renderStarVoting(candidates) {
     misCalificaciones = {};
 
     candidates.forEach((cand, idx) => {
-        if (cand === myName) return;
+        if (cand === myId) return;
         misCalificaciones[cand] = 0;
-        const asset = ASSETS[cand];
 
         const card = document.createElement('div');
         card.className = 'star-card';
@@ -751,21 +878,15 @@ function renderStarVoting(candidates) {
         const leftDiv = document.createElement('div');
         leftDiv.className = 'star-card-left';
         leftDiv.innerHTML = `
-            <div class="star-card-emoji">${asset ? asset.emoji : '🎮'}</div>
-            <div class="star-card-name">${escapeHtml(cand)}</div>
+            <div class="star-card-emoji">${escapeHtml(emojiDe(cand))}</div>
+            <div class="star-card-name">${escapeHtml(nombreDe(cand))}</div>
         `;
 
         card.appendChild(leftDiv);
         card.appendChild(starRating);
 
-        if (window.gsap) {
-            card.style.opacity = '0';
-            card.style.transform = 'translateY(15px)';
-            container.appendChild(card);
-            gsap.to(card, { opacity: 1, y: 0, duration: 0.35, delay: idx * 0.07, ease: 'power2.out' });
-        } else {
-            container.appendChild(card);
-        }
+        container.appendChild(card);
+        animIn(card, { y: 15, duration: 0.32, delay: idx * 0.06, ease: 'power2.out' });
     });
 }
 
@@ -779,8 +900,8 @@ function rateUser(candidato, valor) {
             const isNowActive = idx < valor;
             s.textContent = isNowActive ? 'star' : 'star_rate';
             s.classList.toggle('active', isNowActive);
-            if (isNowActive && !wasActive && window.gsap) {
-                gsap.fromTo(s, { scale: 1.5 }, { scale: 1, duration: 0.25, ease: 'back.out(2)' });
+            if (isNowActive && !wasActive && window.gsap && !reducedMotion()) {
+                gsap.fromTo(s, { scale: 1.25 }, { scale: 1, duration: 0.2, ease: 'back.out(2)', clearProps: 'transform' });
             }
         });
         card.classList.remove('card-error');
@@ -828,6 +949,95 @@ function resetScores()     { if (confirm('¿Borrar todas las puntuaciones?')) { 
 function resetLobby()      { socket.emit('admin_reset_lobby'); }
 
 // ============================================================
+//  HISTORIAL (solo admin)
+// ============================================================
+let historialAbierto = false;
+
+function toggleHistorial() {
+    SFX.blip();
+    const panel = document.getElementById('historial-panel');
+    if (!panel) return;
+
+    historialAbierto = !historialAbierto;
+    panel.classList.toggle('hidden', !historialAbierto);
+
+    if (historialAbierto) {
+        // Se pide al abrir, no en cada update del panel de admin.
+        document.getElementById('historial-ranking').innerHTML =
+            '<p class="muted-text">Cargando…</p>';
+        document.getElementById('historial-lista').innerHTML = '';
+        socket.emit('admin_get_history');
+        animIn(panel, { y: 10, duration: 0.28 });
+    }
+}
+
+function fechaCorta(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yy = String(d.getFullYear()).slice(-2);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mi = String(d.getMinutes()).padStart(2, '0');
+    return `${dd}/${mm}/${yy} ${hh}:${mi}`;
+}
+
+socket.on('history_data', ({ disponible, ranking, registros, error }) => {
+    const elRanking = document.getElementById('historial-ranking');
+    const elLista   = document.getElementById('historial-lista');
+    if (!elRanking || !elLista) return;
+
+    if (!disponible) {
+        elRanking.innerHTML = '<p class="muted-text">Historial no configurado. Ver el README.</p>';
+        elLista.innerHTML = '';
+        return;
+    }
+    if (error) {
+        elRanking.innerHTML = `<p class="muted-text">No se pudo leer el historial:<br>${escapeHtml(error)}</p>`;
+        elLista.innerHTML = '<button type="button" class="btn-ghost" onclick="socket.emit(\'admin_get_history\')">REINTENTAR</button>';
+        return;
+    }
+    if (!registros.length) {
+        elRanking.innerHTML = '<p class="muted-text">Todavía no hay torneos registrados.</p>';
+        elLista.innerHTML = '';
+        return;
+    }
+
+    elRanking.innerHTML = ranking.map((f, i) => {
+        // Nombre sin los emojis decorativos: el avatar ya va al lado, y en 360px
+        // repetirlos obligaba a recortar el nombre hasta dejarlo en "Fe...".
+        const nombre = chr(f.id)?.nombre || f.id;
+        return `
+        <div class="podium-row">
+            <div class="podium-left">
+                <span class="podium-rank">${i + 1}°</span>
+                <span class="podium-emoji">${escapeHtml(emojiDe(f.id))}</span>
+                <span class="podium-name">${escapeHtml(nombre)}</span>
+            </div>
+            <span class="podium-score">${f.torneos}🏆 ${f.rondas}🎵</span>
+        </div>`;
+    }).join('');
+
+    elLista.innerHTML = registros.map(r => {
+        const nombres = r.ganadores.map(id => escapeHtml(nombreDe(id))).join(' + ');
+        // Object.values({}) da [] y Math.max() daria -Infinity: se cubre el caso.
+        const valores  = Object.values(r.puntajes || {});
+        const puntos   = valores.length ? Math.max(...valores) : 0;
+        const badge    = r.tipo === 'estrellas' ? 'stars' : 'normal';
+        const etiqueta = r.tipo === 'estrellas' ? 'TORNEO' : 'RONDA';
+        return `
+            <div class="historial-row">
+                <span class="historial-fecha">${fechaCorta(r.fecha)}</span>
+                <span class="mode-badge ${badge}">${etiqueta}</span>
+                <span class="historial-ganador">${r.empate ? '🤝 ' : ''}${nombres}</span>
+                <span class="historial-puntos">${puntos} ${escapeHtml(r.unidad || '')}</span>
+            </div>`;
+    }).join('');
+
+    animIn(elLista.children, { y: 8, duration: 0.25, stagger: 0.03 });
+});
+
+// ============================================================
 //  AUDIO
 // ============================================================
 function playAudio(filename) {
@@ -838,10 +1048,10 @@ function playAudio(filename) {
     audio.load();
     audio.play().then(() => {
         audioTimeout = setTimeout(() => stopAudio(), 7000);
-    }).catch(() => {
-        if (filename.includes('2.mp3')) {
-            playAudio(filename.replace('2.mp3', '.mp3'));
-        }
+    }).catch(err => {
+        // El servidor solo manda archivos declarados en concursantes.json, asi
+        // que un fallo aca es de reproduccion (autoplay bloqueado), no de ruta.
+        console.warn('No se pudo reproducir', filename, err?.message || err);
     });
 }
 
