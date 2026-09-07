@@ -1,0 +1,25 @@
+# Dependencias — se reinstalan con `npm install`
+node_modules/
+
+# Estado del torneo en curso (se regenera solo)
+data/estado.json
+
+# Entorno
+.env
+.env.local
+
+# Clave de servicio de Firebase — NUNCA al repo.
+# Da acceso completo al proyecto: si se filtra, revocarla desde la consola.
+serviceAccountKey.json
+
+# Skills de agentes (npx skills add). No son codigo de la app, y .claude/skills
+# son symlinks, que dan problemas al clonar en Windows.
+# Se ignora .claude/skills/ y no todo .claude/, para poder commitear settings
+# del proyecto mas adelante si hiciera falta.
+.agents/
+.claude/skills/
+skills-lock.json
+
+# Logs
+*.log
+npm-debug.log*
