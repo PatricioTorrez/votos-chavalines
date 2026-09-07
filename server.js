@@ -562,9 +562,6 @@ module.exports = {
             clearAllInactivityTimers();
             cancelarResultadosPendientes();
         },
-        // Permite levantar el server desde un script que parchea lib/historial
-        // para probar las ramas de Firestore sin credenciales reales.
-        escuchar(port) { return server.listen(port); },
         cerrar() {
             clearAllInactivityTimers();
             cancelarResultadosPendientes();
