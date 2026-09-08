@@ -23,3 +23,9 @@ skills-lock.json
 # Logs
 *.log
 npm-debug.log*
+
+# Copias intermedias de la clave de servicio (base64, json suelto). Mismo
+# criterio que serviceAccountKey.json: NUNCA al repo.
+key.b64
+key.json
+*.b64
