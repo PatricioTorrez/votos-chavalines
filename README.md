@@ -29,12 +29,44 @@ ngrok genera una URL pública como `https://abc123.ngrok.io`. Esa URL es la que 
 > Terminal 2 → ngrok http 3000
 > ```
 
+### 4. Deploy en Render (opcional, para tener una URL fija)
+
+Alternativa a ngrok: una URL que no cambia y no depende de tu máquina prendida.
+El repo ya trae `render.yaml`, así que Render se configura solo.
+
+1. Subí el repo a GitHub (si no está).
+2. En [Render](https://dashboard.render.com) → **New** → **Blueprint** → elegí
+   el repo. Render lee `render.yaml` y arma el servicio.
+3. Te va a pedir el valor de `FIREBASE_SERVICE_ACCOUNT`: pegá **todo** el
+   contenido de `serviceAccountKey.json`. Si lo dejás vacío, el juego funciona
+   igual pero no guarda historial.
+4. Queda en `https://votos-chavalines.onrender.com` (el nombre puede variar si
+   ya está tomado). Esa URL es la que comparten.
+
+Para cambiar la clave de admin en el server desplegado: **Environment** → agregar
+`ADMIN_PASSWORD`. Sin eso, sigue siendo `12345678`.
+
+**Dos cosas del plan gratis** que conviene saber antes de la noche de torneo:
+
+- El servicio **se duerme a los 15 minutos** sin visitas. La primera persona que
+  entre después va a esperar ~1 minuto a que despierte. Abrí la URL un rato
+  antes de que lleguen los demás.
+- El disco es **efímero**: al dormirse o al hacer un deploy se borra
+  `data/estado.json`, o sea que los puntajes del torneo en curso arrancan de
+  cero. El historial no se pierde: eso vive en Firestore.
+
+> **Por qué no Vercel:** el juego necesita un proceso vivo con estado en memoria
+> (quién es el admin, los votos de la ronda) y un WebSocket abierto con cada
+> celular. Las funciones serverless de Vercel no sostienen ninguna de las dos
+> cosas: cada request puede caer en un proceso distinto, y de ahí el
+> `FUNCTION_INVOCATION_FAILED`.
+
 ### Contraseña de admin
-Si no se define nada, el servidor **genera una clave al azar y la imprime al arrancar**:
+La clave es fija: **`12345678`**. El servidor la imprime al arrancar:
 ```
-🔑 Clave de admin (generada para esta sesión): 7F3A2B
+🔑 Clave de admin: 12345678
 ```
-Para fijar una propia:
+Para usar otra, sin tocar el código:
 ```bash
 ADMIN_PASSWORD=miClave npm start
 ```
@@ -84,11 +116,18 @@ Para activarlo:
    📜 Historial: activo (proyecto votos-chavalines)
    ```
 
-Alternativa a los pasos 1-2: apuntar la variable estándar de Google a otra ruta.
+Dos alternativas a los pasos 1-2, por si el archivo no te sirve:
 
 ```bash
+# apuntar la variable estándar de Google a otra ruta
 GOOGLE_APPLICATION_CREDENTIALS=/ruta/al/key.json npm start
+
+# o pegar el JSON entero en una variable (así se configura en Render)
+FIREBASE_SERVICE_ACCOUNT='{"type":"service_account",...}' npm start
 ```
+
+`FIREBASE_SERVICE_ACCOUNT` también acepta el mismo JSON en base64, para paneles
+que no dejan pegar saltos de línea.
 
 Una vez configurado, el admin ve el botón **HISTORIAL** en su panel:
 

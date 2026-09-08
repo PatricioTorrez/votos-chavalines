@@ -2,7 +2,6 @@ const express = require('express');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
 const { Server } = require("socket.io");
 const historial = require('./lib/historial');
 
@@ -82,11 +81,8 @@ function display(id) {
 const INACTIVITY_TIMEOUT = 5 * 60 * 1000; // 5 minutos
 const SUSPENSO_MS        = 4000;          // duración del redoble antes del resultado
 
-// Sin ADMIN_PASSWORD en el entorno se genera una al azar y se imprime al arrancar.
-// Antes el default era "admin", sobre una URL de ngrok publica.
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD
-    || crypto.randomBytes(3).toString('hex').toUpperCase();
-const PASSWORD_GENERADA = !process.env.ADMIN_PASSWORD;
+// Clave fija del admin. ADMIN_PASSWORD en el entorno la reemplaza si hace falta.
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '12345678';
 
 // ============================================================
 //  ESTADO GLOBAL
@@ -536,12 +532,7 @@ if (require.main === module) {
         } else {
             console.log(`📜 Historial: sin configurar — se juega igual, no se guardan registros`);
         }
-        if (PASSWORD_GENERADA) {
-            console.log(`\n🔑 Clave de admin (generada para esta sesión): ${ADMIN_PASSWORD}`);
-            console.log(`   Para fijarla: ADMIN_PASSWORD=tuClave npm start\n`);
-        } else {
-            console.log(`🔑 Clave de admin: la de la variable ADMIN_PASSWORD\n`);
-        }
+        console.log(`\n🔑 Clave de admin: ${ADMIN_PASSWORD}\n`);
     });
 }
 

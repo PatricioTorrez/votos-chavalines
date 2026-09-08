@@ -1,0 +1,25 @@
+# Blueprint de Render. En el panel: New → Blueprint → elegir este repo.
+# Render lee este archivo y crea el servicio con esta configuracion.
+#
+# Por que Render y no Vercel: el juego necesita UN proceso vivo y con estado en
+# memoria (adminSocketId, votos de la ronda, quien esta conectado) y una
+# conexion WebSocket abierta con cada celular. Las funciones serverless de
+# Vercel no sostienen ni una cosa ni la otra.
+services:
+  - type: web
+    name: votos-chavalines
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      # El puerto lo inyecta Render; server.js ya lo lee de process.env.PORT.
+      - key: NODE_VERSION
+        value: 22
+      # La clave de servicio de Firebase, el JSON entero pegado como valor.
+      # sync: false = no se guarda en el repo, se pega en el panel de Render.
+      # Si queda vacia, se juega igual: no se guarda el historial.
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false
