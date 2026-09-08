@@ -92,20 +92,18 @@ Para activarlo:
 2. Guardalo como `serviceAccountKey.json` en la raíz del proyecto.
    Ya está en `.gitignore`: **nunca lo subas al repo**. Da acceso completo al
    proyecto de Firebase; si se te filtra, revocala desde la misma pantalla.
-3. En la consola, pestaña **Firestore Database → Reglas**, pegá esto:
+3. Aplicá las reglas de seguridad. Están versionadas en `firestore.rules` y se
+   deployan con la CLI de Firebase (viene preinstalada en Cloud Shell):
 
-   ```
-   service cloud.firestore {
-     match /databases/{database}/documents {
-       match /{document=**} {
-         allow read, write: if false;
-       }
-     }
-   }
+   ```bash
+   firebase deploy --only firestore:rules --project votos-chavalines
    ```
 
-   Esto bloquea todo acceso desde navegadores. El servidor no pasa por las
-   reglas: autentica con la clave de servicio vía IAM. Como la app se sirve por
+   Alternativa sin CLI: consola de Firebase → **Firestore Database → Reglas**,
+   pegar el contenido de `firestore.rules` y publicar.
+
+   Esas reglas niegan todo acceso desde navegadores. El servidor no pasa por
+   ellas: autentica con la clave de servicio vía IAM. Como la app se sirve por
    una URL pública y no tiene login, esta es la configuración correcta — el
    "modo de prueba" de Firestore dejaría que cualquiera con el link te borre el
    historial.

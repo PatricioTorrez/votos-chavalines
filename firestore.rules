@@ -1,0 +1,19 @@
+rules_version = '2';
+
+// Reglas de Firestore para el historial de torneos.
+//
+// Estas reglas gobiernan SOLO el acceso desde clientes (navegadores). El
+// servidor del juego no pasa por aca: autentica con la clave de servicio via
+// IAM, que saltea las reglas por completo. Por eso negar todo no rompe nada.
+//
+// Y hay que negar todo: la app se sirve en una URL publica y no tiene login,
+// asi que cualquiera con el link podria abrir la consola del navegador y
+// escribir o borrar el historial. El "modo de prueba" de Firestore hace
+// justamente lo contrario y deja esa puerta abierta.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
